@@ -1,14 +1,15 @@
 // Import necessary modules and dependencies
 use pixels::{Pixels, SurfaceTexture};
 use std::collections::{BinaryHeap, HashMap};
-use std::time::{Duration, Instant};
+use std::time::{Duration};
 use std::{thread, cmp::Reverse};
 use winit::{
     dpi::LogicalSize,
-    event::{Event, VirtualKeyCode, WindowEvent},
+    event::{Event, WindowEvent},
     event_loop::{ControlFlow, EventLoop},
     window::WindowBuilder,
 };
+use std::cmp::Ordering;
 
 // Size of each cell in pixels
 const CELL_SIZE: u32 = 40;
@@ -41,11 +42,24 @@ struct Cell {
 }
 
 // State struct used in the priority queue (BinaryHeap)
-#[derive(Eq, PartialEq, Ord, PartialOrd)]
+#[derive(Eq, PartialEq)]
 struct State {
     position: (usize, usize),
     priority: usize,
 }
+
+impl Ord for State {
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.priority.cmp(&other.priority)
+    }
+}
+
+impl PartialOrd for State {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
 
 // Manhattan distance heuristic for A* algorithm
 fn heuristic(a: (usize, usize), b: (usize, usize)) -> usize {
@@ -55,10 +69,10 @@ fn heuristic(a: (usize, usize), b: (usize, usize)) -> usize {
 }
 
 // Draw the entire grid to the screen (pixel frame buffer)
-fn draw_grid(frame: &mut [u8], field: &Vec<Vec<Cell>>, width: usize, height: usize) {
-    for x in 0..width {
-        for y in 0..height {
-            let color = match field[x][y].cell_type {
+fn draw_grid(frame: &mut [u8], field: &Vec<Vec<Cell>>, height: usize, width: usize) {
+    for y in 0..height {
+        for x in 0..width {
+            let color = match field[y][x].cell_type {
                 CellType::Empty => COLORS[0],
                 CellType::Wall => COLORS[1],
                 CellType::Start => COLORS[2],
@@ -66,7 +80,6 @@ fn draw_grid(frame: &mut [u8], field: &Vec<Vec<Cell>>, width: usize, height: usi
                 CellType::Visited => COLORS[4],
                 CellType::Path => COLORS[5],
             };
-            // Fill one cell with the appropriate color
             draw_cell_with_border(
                 frame,
                 x as u32 * CELL_SIZE,
@@ -88,25 +101,18 @@ fn draw_cell_with_border(
     (r, g, b): (u8, u8, u8),
     screen_width: u32,
 ) {
-    // Основной цвет внутри ячейки (уменьшен на 2 пикселя)
     let inner_margin = 1;
-    let inner_size = size - 2 * inner_margin;
-
     for dx in 0..size {
         for dy in 0..size {
             let i = ((y + dy) * screen_width + (x + dx)) as usize * 4;
-
-            // Условие на рамку
             let is_border = dx == 0 || dx == size - 1 || dy == 0 || dy == size - 1;
 
             if is_border {
-                // Рамка: тёмно-серый
                 frame[i] = 40;
                 frame[i + 1] = 40;
                 frame[i + 2] = 40;
                 frame[i + 3] = 255;
             } else {
-                // Основной цвет клетки
                 frame[i] = r;
                 frame[i + 1] = g;
                 frame[i + 2] = b;
@@ -116,23 +122,20 @@ fn draw_cell_with_border(
     }
 }
 
-
 // A* algorithm step-by-step with visualization after each step
 fn a_star_step_by_step(
     field: &mut Vec<Vec<Cell>>,
     start: (usize, usize),
     goal: (usize, usize),
-    draw_callback: &mut dyn FnMut(),
+    pixels: &mut Pixels,
+    height: usize,
+    width: usize,
 ) {
-    let width = field.len();
-    let height = field[0].len();
-
     let mut queue = BinaryHeap::new();
     let mut came_from: HashMap<(usize, usize), (usize, usize)> = HashMap::new();
-    let mut g_score = vec![vec![usize::MAX; height]; width];
+    let mut g_score = vec![vec![usize::MAX; width]; height];
     g_score[start.0][start.1] = 0;
 
-    // Start by pushing the start cell into the priority queue
     queue.push(Reverse(State {
         position: start,
         priority: heuristic(start, goal),
@@ -143,78 +146,73 @@ fn a_star_step_by_step(
             break;
         }
 
-        let (x, y) = position;
+        let (y, x) = position;
 
-        // Mark current cell as visited unless it is Start or Goal
-        if field[x][y].cell_type != CellType::Start && field[x][y].cell_type != CellType::Goal {
-            field[x][y].cell_type = CellType::Visited;
+        if field[y][x].cell_type != CellType::Start && field[y][x].cell_type != CellType::Goal {
+            field[y][x].cell_type = CellType::Visited;
         }
 
-        draw_callback(); // Trigger redraw
-        thread::sleep(Duration::from_millis(50)); // Pause for animation effect
+        draw_grid(pixels.frame_mut(), field, height, width);
+        pixels.render().unwrap();
+        thread::sleep(Duration::from_millis(200));
 
-        // Check all 4 adjacent directions
         let directions = [(0, 1), (0, -1), (1, 0), (-1, 0)];
 
-        for (dx, dy) in directions {
-            let nx = x as isize + dx;
+        for (dy, dx) in directions {
             let ny = y as isize + dy;
+            let nx = x as isize + dx;
 
-            // Ignore out-of-bounds
-            if nx < 0 || ny < 0 || nx >= width as isize || ny >= height as isize {
+            if ny < 0 || nx < 0 || ny >= height as isize || nx >= width as isize {
                 continue;
             }
 
-            let (nx, ny) = (nx as usize, ny as usize);
+            let (ny, nx) = (ny as usize, nx as usize);
 
-            // Skip walls
-            if field[nx][ny].cell_type == CellType::Wall {
+            if field[ny][nx].cell_type == CellType::Wall {
                 continue;
             }
 
-            let tentative_g = g_score[x][y] + 1;
+            let tentative_g = g_score[y][x] + 1;
 
-            // Relaxation step
-            if tentative_g < g_score[nx][ny] {
-                g_score[nx][ny] = tentative_g;
-                came_from.insert((nx, ny), (x, y));
-                let f_score = tentative_g + heuristic((nx, ny), goal);
+            if tentative_g < g_score[ny][nx] {
+                g_score[ny][nx] = tentative_g;
+                came_from.insert((ny, nx), (y, x));
+                let f_score = tentative_g + heuristic((ny, nx), goal);
                 queue.push(Reverse(State {
-                    position: (nx, ny),
+                    position: (ny, nx),
                     priority: f_score,
                 }));
             }
         }
     }
 
-    // Trace back the path from goal to start
     let mut current = goal;
     while current != start {
         current = came_from[&current];
         if current != start {
             field[current.0][current.1].cell_type = CellType::Path;
-            draw_callback();
-            thread::sleep(Duration::from_millis(50));
+
+            draw_grid(pixels.frame_mut(), field, height, width);
+            pixels.render().unwrap();
+            thread::sleep(Duration::from_millis(200));
         }
     }
 }
 
 // Entry point
 fn main() {
-    let width = 10;
     let height = 10;
+    let width = 10;
 
-    // Initialize empty field
-    let mut field = vec![vec![Cell { cell_type: CellType::Empty }; height]; width];
+    let mut field = vec![vec![Cell { cell_type: CellType::Empty }; width]; height];
 
-    // Add start, goal, and some walls
     field[2][0].cell_type = CellType::Start;
-    field[width - 1][height - 1].cell_type = CellType::Goal;
+    field[height - 1][width - 1].cell_type = CellType::Goal;
     field[2][2].cell_type = CellType::Wall;
     field[2][3].cell_type = CellType::Wall;
     field[1][2].cell_type = CellType::Wall;
+    field[3][2].cell_type = CellType::Wall;
 
-    // Create window and pixel buffer
     let event_loop = EventLoop::new();
     let window = {
         let size = LogicalSize::new((width as u32 * CELL_SIZE) as f64, (height as u32 * CELL_SIZE) as f64);
@@ -234,31 +232,25 @@ fn main() {
 
     let mut should_run_astar = true;
 
-    // Start event loop
     event_loop.run(move |event, _, control_flow| {
         *control_flow = ControlFlow::Poll;
 
         match event {
-            // Close window event
             Event::WindowEvent {
                 event: WindowEvent::CloseRequested,
                 ..
             } => *control_flow = ControlFlow::Exit,
 
-            // Start A* once per app run
             Event::MainEventsCleared => {
                 if should_run_astar {
                     should_run_astar = false;
-                    a_star_step_by_step(&mut field, (2, 0), (width - 1, height - 1), &mut || {
-                        window.request_redraw();
-                    });
+                    a_star_step_by_step(&mut field, (2, 0), (height - 1, width - 1), &mut pixels, height, width);
                 }
-                window.request_redraw(); // Force redraw
+                window.request_redraw();
             }
 
-            // Redraw screen
             Event::RedrawRequested(_) => {
-                draw_grid(pixels.frame_mut(), &field, width, height);
+                draw_grid(pixels.frame_mut(), &field, height, width);
                 pixels.render().unwrap();
             }
 
