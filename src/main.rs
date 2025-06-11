@@ -149,9 +149,12 @@ fn a_star_step_by_step(
         priority: heuristic(start, goal),
     }));
 
+    let mut found = false;
+
     // Main A* loop
     while let Some(Reverse(State { position, .. })) = queue.pop() {
         if position == goal {
+            found = true;
             break;
         }
 
@@ -196,6 +199,12 @@ fn a_star_step_by_step(
                 }));
             }
         }
+    }
+
+
+    if !found {
+        println!("No path found.");
+        return;
     }
 
     // Trace and draw final path
@@ -275,6 +284,9 @@ fn main() {
                                         }
                                     }
                                     PlacementMode::Start => {
+                                        if field[y][x].cell_type == CellType::Wall {
+                                            return;
+                                        }
                                         // Remove previous start
                                         for row in &mut field {
                                             for cell in row {
@@ -286,11 +298,12 @@ fn main() {
                                         if field[y][x].cell_type == CellType::Empty {
                                             field[y][x].cell_type = CellType::Start;
                                             start_pos = Some((y, x));
-                                        } else if field[y][x].cell_type == CellType::Start {
-                                            field[y][x].cell_type = CellType::Empty;
                                         }
                                     }
                                     PlacementMode::Goal => {
+                                        if field[y][x].cell_type == CellType::Wall {
+                                            return;
+                                        }
                                         // Remove previous goal
                                         for row in &mut field {
                                             for cell in row {
@@ -302,8 +315,6 @@ fn main() {
                                         if field[y][x].cell_type == CellType::Empty {
                                             field[y][x].cell_type = CellType::Goal;
                                             goal_pos = Some((y, x));
-                                        } else if field[y][x].cell_type == CellType::Goal {
-                                            field[y][x].cell_type = CellType::Empty;
                                         }
                                     }
                                 }
