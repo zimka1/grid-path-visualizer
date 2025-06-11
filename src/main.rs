@@ -239,6 +239,7 @@ fn main() {
     };
 
     // Application state variables
+    let mut path_drawn = false;
     let mut should_run_astar = false;
     let mut placing_walls = true;
     let mut cursor_position: Option<(f64, f64)> = None;
@@ -285,6 +286,8 @@ fn main() {
                                         if field[y][x].cell_type == CellType::Empty {
                                             field[y][x].cell_type = CellType::Start;
                                             start_pos = Some((y, x));
+                                        } else if field[y][x].cell_type == CellType::Start {
+                                            field[y][x].cell_type = CellType::Empty;
                                         }
                                     }
                                     PlacementMode::Goal => {
@@ -299,6 +302,8 @@ fn main() {
                                         if field[y][x].cell_type == CellType::Empty {
                                             field[y][x].cell_type = CellType::Goal;
                                             goal_pos = Some((y, x));
+                                        } else if field[y][x].cell_type == CellType::Goal {
+                                            field[y][x].cell_type = CellType::Empty;
                                         }
                                     }
                                 }
@@ -322,6 +327,25 @@ fn main() {
                                 VirtualKeyCode::W => placement_mode = PlacementMode::Wall,
                                 VirtualKeyCode::S => placement_mode = PlacementMode::Start,
                                 VirtualKeyCode::G => placement_mode = PlacementMode::Goal,
+                                VirtualKeyCode::R => {
+                                    if path_drawn {
+                                        // Reset all visited and path cells
+                                        for row in &mut field {
+                                            for cell in row {
+                                                if cell.cell_type == CellType::Path || cell.cell_type == CellType::Visited {
+                                                    cell.cell_type = CellType::Empty;
+                                                }
+                                            }
+                                        }
+                                
+                                        // Reset state
+                                        placing_walls = true;
+                                        should_run_astar = false;
+                                        path_drawn = false;
+                                        window.request_redraw();
+                                        println!("Grid reset. Place walls, start, and goal again.");
+                                    }
+                                }
                                 VirtualKeyCode::Space => {
                                     if placing_walls {
                                         if let (Some(start), Some(goal)) = (start_pos, goal_pos) {
@@ -353,7 +377,8 @@ fn main() {
                         height,
                         width,
                     );
-                }
+                    path_drawn = true;
+                }                
                 window.request_redraw();
             }
 
